@@ -1,4 +1,4 @@
-#    Spectrogram plugin for the DeaDBeeF audio player
+#    Stereo Spectrogram plugin for the DeaDBeeF audio player
 #
 #    Copyright (C) 2014 Christian Boxdörfer <christian.boxdoerfer@posteo.de>
 #

@@ -1,15 +1,15 @@
 pkgname=deadbeef-plugin-stereo-spectrogram-git
-pkgver=20140327
+pkgver=20250805
 pkgrel=1
 pkgdesc="Stereo Spectrogram Plugin for the DeaDBeeF audio player (development version)"
-url="https://github.com/cboxdoerfer/ddb_spectrogram"
+url="https://github.com/x00FB/ddb_stereo_spectrogram"
 arch=('i686' 'x86_64')
 license='GPL2'
 depends=('deadbeef' 'fftw')
 makedepends=('git')
 
 _gitname=ddb_stereo_spectrogram
-_gitroot=https://github.com/cboxdoerfer/${_gitname}
+_gitroot=https://github.com/x00FB/${_gitname}
 
 build() {
   cd $srcdir
