@@ -1106,7 +1106,7 @@ static DB_misc_t plugin = {
         "along with this program; if not, write to the Free Software\n"
         "Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.\n"
     ,
-    .plugin.website         = "https://github.com/cboxdoerfer/ddb_spectrogram",
+    .plugin.website         = "https://github.com/x00FB/ddb_stereo_spectrogram",
     .plugin.start           = spectrogram_start,
     .plugin.stop            = spectrogram_stop,
     .plugin.connect         = spectrogram_connect,

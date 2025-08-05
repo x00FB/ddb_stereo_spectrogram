@@ -5,6 +5,8 @@ Stereo Spectrogram plugin for DeaDBeeF audio player
 This is a fork of https://github.com/cboxdoerfer/ddb_spectrogram
 All credits go to the original author.
 
+All credits go to the original author.
+
 #### Build from sources
 ```bash
 make
