@@ -1,5 +1,5 @@
 /*
-    Spectrogram plugin for the DeaDBeeF audio player
+    Stereo Spectrogram plugin for the DeaDBeeF audio player
 
     Copyright (C) 2014 Christian Boxdörfer <christian.boxdoerfer@posteo.de>
 
@@ -60,15 +60,23 @@ typedef struct {
     GtkWidget *popup;
     GtkWidget *popup_item;
     guint drawtimer;
-    double *data;
+    // Stereo channel data
+    double *data_left;
+    double *data_right;
     double window[FFT_SIZE];
-    double *in;
-    //double *out_real;
-    fftw_complex *out_complex;
-    fftw_plan p_r2c;
-    //fftw_plan p_r2r;
+    // Stereo FFT inputs
+    double *in_left;
+    double *in_right;
+    // Stereo FFT outputs
+    fftw_complex *out_complex_left;
+    fftw_complex *out_complex_right;
+    // Stereo FFT plans
+    fftw_plan p_r2c_left;
+    fftw_plan p_r2c_right;
     uint32_t colors[GRADIENT_TABLE_SIZE];
-    double *samples;
+    // Stereo sample buffers
+    double *samples_left;
+    double *samples_right;
     int *log_index;
     float samplerate;
     int height;
@@ -136,28 +144,41 @@ load_config (void)
     deadbeef->conf_unlock ();
 }
 
+// Helper function to process FFT for a single channel
+static void
+process_channel_fft(w_spectrogram_t *w, double *samples, double *in, fftw_complex *out_complex, fftw_plan plan, double *data)
+{
+    double real, imag;
+
+    for (int i = 0; i < FFT_SIZE; i++) {
+        in[i] = samples[i] * w->window[i];
+    }
+    
+    fftw_execute (plan);
+    
+    for (int i = 0; i < FFT_SIZE/2; i++) {
+        real = out_complex[i][0];
+        imag = out_complex[i][1];
+        data[i] = (real*real + imag*imag);
+    }
+}
+
 void
 do_fft (w_spectrogram_t *w)
 {
-    if (!w->samples || w->buffered < FFT_SIZE/2) {
+    if ((!w->samples_left || !w->samples_right) || w->buffered < FFT_SIZE/2) {
         return;
     }
+    
     deadbeef->mutex_lock (w->mutex);
-    double real,imag;
-
-    for (int i = 0; i < FFT_SIZE; i++) {
-        w->in[i] = w->samples[i] * w->window[i];
-    }
+    
+    // Process left channel
+    process_channel_fft(w, w->samples_left, w->in_left, w->out_complex_left, w->p_r2c_left, w->data_left);
+    
+    // Process right channel
+    process_channel_fft(w, w->samples_right, w->in_right, w->out_complex_right, w->p_r2c_right, w->data_right);
+    
     deadbeef->mutex_unlock (w->mutex);
-    //fftw_execute (w->p_r2r);
-    fftw_execute (w->p_r2c);
-    for (int i = 0; i < FFT_SIZE/2; i++)
-    {
-        real = w->out_complex[i][0];
-        imag = w->out_complex[i][1];
-        w->data[i] = (real*real + imag*imag);
-        //w->data[i] = w->out_real[i]*w->out_real[i] + w->out_real[FFT_SIZE/2+i]*w->out_real[FFT_SIZE/2+i];
-    }
 }
 
 static inline void
@@ -551,36 +572,60 @@ void
 w_spectrogram_destroy (ddb_gtkui_widget_t *w) {
     w_spectrogram_t *s = (w_spectrogram_t *)w;
     deadbeef->vis_waveform_unlisten (w);
-    if (s->data) {
-        free (s->data);
-        s->data = NULL;
+    
+    // Free stereo data arrays
+    if (s->data_left) {
+        free (s->data_left);
+        s->data_left = NULL;
     }
-    if (s->samples) {
-        free (s->samples);
-        s->samples = NULL;
+    if (s->data_right) {
+        free (s->data_right);
+        s->data_right = NULL;
     }
+    
+    // Free stereo sample arrays
+    if (s->samples_left) {
+        free (s->samples_left);
+        s->samples_left = NULL;
+    }
+    if (s->samples_right) {
+        free (s->samples_right);
+        s->samples_right = NULL;
+    }
+    
     if (s->log_index) {
         free (s->log_index);
         s->log_index = NULL;
     }
-    //if (s->p_r2r) {
-    //    fftw_destroy_plan (s->p_r2r);
-    //}
-    if (s->p_r2c) {
-        fftw_destroy_plan (s->p_r2c);
+    
+    // Destroy stereo FFT plans
+    if (s->p_r2c_left) {
+        fftw_destroy_plan (s->p_r2c_left);
     }
-    if (s->in) {
-        fftw_free (s->in);
-        s->in = NULL;
+    if (s->p_r2c_right) {
+        fftw_destroy_plan (s->p_r2c_right);
     }
-    //if (s->out_real) {
-    //    fftw_free (s->out_real);
-    //    s->out_real = NULL;
-    //}
-    if (s->out_complex) {
-        fftw_free (s->out_complex);
-        s->out_complex = NULL;
+    
+    // Free stereo FFT input arrays
+    if (s->in_left) {
+        fftw_free (s->in_left);
+        s->in_left = NULL;
     }
+    if (s->in_right) {
+        fftw_free (s->in_right);
+        s->in_right = NULL;
+    }
+    
+    // Free stereo FFT output arrays
+    if (s->out_complex_left) {
+        fftw_free (s->out_complex_left);
+        s->out_complex_left = NULL;
+    }
+    if (s->out_complex_right) {
+        fftw_free (s->out_complex_right);
+        s->out_complex_right = NULL;
+    }
+    
     if (s->drawtimer) {
         g_source_remove (s->drawtimer);
         s->drawtimer = 0;
@@ -602,44 +647,65 @@ w_spectrogram_draw_cb (void *data) {
     return TRUE;
 }
 
+// Forward declaration
+static void process_channel_samples(double *samples, const ddb_audio_data_t *data, int channel, int sz, int n, int nsamples);
+
 static void
-spectrogram_wavedata_listener (void *ctx, ddb_audio_data_t *data) {
+spectrogram_wavedata_listener (void *ctx, const ddb_audio_data_t *data) {
     w_spectrogram_t *w = ctx;
-    if (!w->samples) {
+    if (!w->samples_left || !w->samples_right) {
         return;
     }
+    
     deadbeef->mutex_lock (w->mutex);
     w->samplerate = (float)data->fmt->samplerate;
     int nsamples = data->nframes;
     int sz = MIN (FFT_SIZE, nsamples);
     int n = FFT_SIZE - sz;
-    memmove (w->samples, w->samples + sz, (FFT_SIZE - sz)*sizeof (double));
+    
+    // Shift existing samples for both channels
+    memmove (w->samples_left, w->samples_left + sz, (FFT_SIZE - sz)*sizeof (double));
+    memmove (w->samples_right, w->samples_right + sz, (FFT_SIZE - sz)*sizeof (double));
 
-    float pos = 0;
-    for (int i = 0; i < sz && pos < nsamples; i++, pos ++) {
-        w->samples[n+i] = -1000.0;
-        for (int j = 0; j < data->fmt->channels; j++) {
-            w->samples[n + i] = MAX (w->samples[n + i], data->data[ftoi (pos * data->fmt->channels) + j]);
-        }
-    }
+    // Process left channel (channel 0)
+    process_channel_samples(w->samples_left, data, 0, sz, n, nsamples);
+    
+    // Process right channel (channel 1)
+    process_channel_samples(w->samples_right, data, 1, sz, n, nsamples);
+    
     deadbeef->mutex_unlock (w->mutex);
     if (w->buffered < FFT_SIZE) {
         w->buffered += sz;
     }
 }
 
+// Helper function to get value from specific channel data
 static inline float
-spectrogram_get_value (gpointer user_data, int start, int end)
+spectrogram_get_value_from_data (double *data, int start, int end)
 {
-    w_spectrogram_t *w = user_data;
     if (start >= end) {
-        return w->data[end];
+        return data[end];
     }
     float value = 0.0;
     for (int i = start; i < end; i++) {
-        value = MAX (w->data[i],value);
+        value = MAX (data[i], value);
     }
     return value;
+}
+
+// Helper function to process samples for a single channel
+static void
+process_channel_samples(double *samples, const ddb_audio_data_t *data, int channel, int sz, int n, int nsamples)
+{
+    float pos = 0;
+    for (int i = 0; i < sz && pos < nsamples; i++, pos++) {
+        int sample_idx = ftoi(pos * data->fmt->channels);
+        if (channel < data->fmt->channels) {
+            samples[n+i] = data->data[sample_idx + channel];
+        } else {
+            samples[n+i] = 0.0; // Fallback for mono input to stereo
+        }
+    }
 }
 
 static inline float
@@ -648,28 +714,102 @@ linear_interpolate (float y1, float y2, float mu)
        return (y1 * (1 - mu) + y2 * mu);
 }
 
+// Helper function to render a single channel in specified vertical range
+static void
+render_channel_spectrogram(w_spectrogram_t *w, double *channel_data, uint8_t *data, int stride, 
+                          int width, int y_start, int y_end, int ratio)
+{
+    int channel_height = y_end - y_start;
+    
+    for (int i = 0; i < channel_height; i++) {
+        float f = 1.0;
+        int index0, index1;
+        int bin0, bin1, bin2;
+        
+        if (CONFIG_LOG_SCALE) {
+            // Scale log_index to channel height
+            int scaled_i = (i * w->height) / channel_height;
+            bin0 = w->log_index[CLAMP (scaled_i-1, 0, w->height-1)];
+            bin1 = w->log_index[CLAMP (scaled_i, 0, w->height-1)];
+            bin2 = w->log_index[CLAMP (scaled_i+1, 0, w->height-1)];
+        } else {
+            bin0 = (i-1) * ratio;
+            bin1 = i * ratio;
+            bin2 = (i+1) * ratio;
+        }
+
+        index0 = bin0 + ftoi ((bin1 - bin0)/2.f);
+        if (index0 == bin0) index0 = bin1;
+        index1 = bin1 + ftoi ((bin2 - bin1)/2.f);
+        if (index1 == bin2) index1 = bin1;
+
+        index0 = CLAMP (index0, 0, FFT_SIZE/2-1);
+        index1 = CLAMP (index1, 0, FFT_SIZE/2-1);
+
+        f = spectrogram_get_value_from_data (channel_data, index0, index1);
+        float x = 10 * log10f (f);
+
+        // Interpolation for log scale low resolution
+        if (CONFIG_LOG_SCALE && i <= (w->low_res_end * channel_height) / w->height) {
+            int j = 0;
+            int scaled_i = (i * w->height) / channel_height;
+            // Find index of next value
+            while (scaled_i+j < w->height && w->log_index[scaled_i+j] == w->log_index[scaled_i]) {
+                j++;
+            }
+            float v0 = x;
+            float v1 = 0;
+            if (scaled_i+j < w->height) {
+                v1 = channel_data[w->log_index[scaled_i+j]];
+                if (v1 != 0) {
+                    v1 = 10 * log10f (v1);
+                }
+            }
+
+            int k = 0;
+            while ((k+scaled_i) >= 0 && w->log_index[k+scaled_i] == w->log_index[scaled_i]) {
+                j++;
+                k--;
+            }
+            if (j > 1) {
+                x = linear_interpolate (v0, v1, (1.0/(j-1)) * ((-1 * k) - 1));
+            }
+        }
+
+        // Apply dB range and color mapping
+        x += CONFIG_DB_RANGE - 63;
+        x = CLAMP (x, 0, CONFIG_DB_RANGE);
+        int color_index = GRADIENT_TABLE_SIZE - ftoi (GRADIENT_TABLE_SIZE/(float)CONFIG_DB_RANGE * x);
+        color_index = CLAMP (color_index, 0, GRADIENT_TABLE_SIZE-1);
+        
+        // Draw pixel at proper position (invert y for bottom-to-top frequency display)
+        _draw_point (data, stride, width-1, y_end-1-i, w->colors[color_index]);
+    }
+}
+
 static gboolean
 spectrogram_draw (GtkWidget *widget, cairo_t *cr, gpointer user_data) {
     w_spectrogram_t *w = user_data;
     GtkAllocation a;
     gtk_widget_get_allocation (widget, &a);
-    if (!w->samples || a.height < 1) {
+    if (!w->samples_left || !w->samples_right || a.height < 2) {
         return FALSE;
     }
 
     int width, height;
     width = a.width;
     height = a.height;
-    int ratio = ftoi (FFT_SIZE/(a.height*2));
+    int half_height = height / 2;
+    int ratio = ftoi (FFT_SIZE/(half_height*2));
     ratio = CLAMP (ratio,0,1023);
 
     if (deadbeef->get_output ()->state () == OUTPUT_STATE_PLAYING) {
         do_fft (w);
-        float log_scale = (log2f(w->samplerate/2)-log2f(25.))/(a.height);
+        float log_scale = (log2f(w->samplerate/2)-log2f(25.))/(half_height);
         float freq_res = w->samplerate / FFT_SIZE;
 
-        if (a.height != w->height) {
-            w->height = MIN (a.height, MAX_HEIGHT);
+        if (half_height != w->height) {
+            w->height = MIN (half_height, MAX_HEIGHT);
             for (int i = 0; i < w->height; i++) {
                 w->log_index[i] = ftoi (powf(2.,((float)i) * log_scale + log2f(25.)) / freq_res);
                 if (i > 0 && w->log_index[i-1] == w->log_index [i]) {
@@ -702,61 +842,11 @@ spectrogram_draw (GtkWidget *widget, cairo_t *cr, gpointer user_data) {
             memmove (data + (i*stride), data + sizeof (uint32_t) + (i*stride), stride - sizeof (uint32_t));
         }
 
-        for (int i = 0; i < a.height; i++)
-        {
-            float f = 1.0;
-            int index0, index1;
-            int bin0, bin1, bin2;
-            if (CONFIG_LOG_SCALE) {
-                bin0 = w->log_index[CLAMP (i-1,0,height-1)];
-                bin1 = w->log_index[i];
-                bin2 = w->log_index[CLAMP (i+1,0,height-1)];
-            }
-            else {
-                bin0 = (i-1) * ratio;
-                bin1 = i * ratio;
-                bin2 = (i+1) * ratio;
-            }
-
-            index0 = bin0 + ftoi ((bin1 - bin0)/2.f);
-            if (index0 == bin0) index0 = bin1;
-            index1 = bin1 + ftoi ((bin2 - bin1)/2.f);
-            if (index1 == bin2) index1 = bin1;
-
-            index0 = CLAMP (index0,0,FFT_SIZE/2-1);
-            index1 = CLAMP (index1,0,FFT_SIZE/2-1);
-
-            f = spectrogram_get_value (w, index0, index1);
-            float x = 10 * log10f (f);
-
-            // interpolate
-            if (i <= w->low_res_end && CONFIG_LOG_SCALE) {
-                int j = 0;
-                // find index of next value
-                while (i+j < height && w->log_index[i+j] == w->log_index[i]) {
-                    j++;
-                }
-                float v0 = x;
-                float v1 = w->data[w->log_index[i+j]];
-                if (v1 != 0) {
-                    v1 = 10 * log10f (v1);
-                }
-
-                int k = 0;
-                while ((k+i) >= 0 && w->log_index[k+i] == w->log_index[i]) {
-                    j++;
-                    k--;
-                }
-                x = linear_interpolate (v0,v1,(1.0/(j-1)) * ((-1 * k) - 1));
-            }
-
-            // TODO: get rid of hardcoding 
-            x += CONFIG_DB_RANGE - 63;
-            x = CLAMP (x, 0, CONFIG_DB_RANGE);
-            int color_index = GRADIENT_TABLE_SIZE - ftoi (GRADIENT_TABLE_SIZE/(float)CONFIG_DB_RANGE * x);
-            color_index = CLAMP (color_index, 0, GRADIENT_TABLE_SIZE-1);
-            _draw_point (data, stride, width-1, height-1-i, w->colors[color_index]);
-        }
+        // Render left channel in top half
+        render_channel_spectrogram(w, w->data_left, data, stride, width, 0, half_height, ratio);
+        
+        // Render right channel in bottom half
+        render_channel_spectrogram(w, w->data_right, data, stride, width, half_height, height, ratio);
     }
     cairo_surface_mark_dirty (w->surf);
 
@@ -854,10 +944,19 @@ w_spectrogram_init (ddb_gtkui_widget_t *w) {
     w_spectrogram_t *s = (w_spectrogram_t *)w;
     load_config ();
     deadbeef->mutex_lock (s->mutex);
-    s->samples = malloc (sizeof (double) * FFT_SIZE);
-    memset (s->samples, 0, sizeof (double) * FFT_SIZE);
-    s->data = malloc (sizeof (double) * FFT_SIZE);
-    memset (s->data, 0, sizeof (double) * FFT_SIZE);
+    
+    // Allocate stereo sample buffers
+    s->samples_left = malloc (sizeof (double) * FFT_SIZE);
+    s->samples_right = malloc (sizeof (double) * FFT_SIZE);
+    memset (s->samples_left, 0, sizeof (double) * FFT_SIZE);
+    memset (s->samples_right, 0, sizeof (double) * FFT_SIZE);
+    
+    // Allocate stereo data buffers
+    s->data_left = malloc (sizeof (double) * FFT_SIZE);
+    s->data_right = malloc (sizeof (double) * FFT_SIZE);
+    memset (s->data_left, 0, sizeof (double) * FFT_SIZE);
+    memset (s->data_right, 0, sizeof (double) * FFT_SIZE);
+    
     if (s->drawtimer) {
         g_source_remove (s->drawtimer);
         s->drawtimer = 0;
@@ -869,18 +968,25 @@ w_spectrogram_init (ddb_gtkui_widget_t *w) {
     memset (s->log_index, 0, sizeof (int) * MAX_HEIGHT);
 
     for (int i = 0; i < FFT_SIZE; i++) {
-        // Hanning
-        //s->window[i] = (0.5 * (1 - cos (2 * M_PI * i/(FFT_SIZE-1))));
-        // Blackman-Harris
+        // Blackman-Harris window
         s->window[i] = 0.35875 - 0.48829 * cos(2 * M_PI * i /(FFT_SIZE)) + 0.14128 * cos(4 * M_PI * i/(FFT_SIZE)) - 0.01168 * cos(6 * M_PI * i/(FFT_SIZE));;
     }
     create_gradient_table (s, CONFIG_GRADIENT_COLORS, CONFIG_NUM_COLORS);
-    s->in = fftw_malloc (sizeof (double) * FFT_SIZE);
-    memset (s->in, 0, sizeof (double) * FFT_SIZE);
-    //s->out_real = fftw_malloc (sizeof (double) * FFT_SIZE);
-    s->out_complex = fftw_malloc (sizeof (fftw_complex) * FFT_SIZE);
-    //s->p_r2r = fftw_plan_r2r_1d (FFT_SIZE, s->in, s->out_real, FFTW_R2HC, FFTW_ESTIMATE);
-    s->p_r2c = fftw_plan_dft_r2c_1d (FFT_SIZE, s->in, s->out_complex, FFTW_ESTIMATE);
+    
+    // Allocate stereo FFT input buffers
+    s->in_left = fftw_malloc (sizeof (double) * FFT_SIZE);
+    s->in_right = fftw_malloc (sizeof (double) * FFT_SIZE);
+    memset (s->in_left, 0, sizeof (double) * FFT_SIZE);
+    memset (s->in_right, 0, sizeof (double) * FFT_SIZE);
+    
+    // Allocate stereo FFT output buffers
+    s->out_complex_left = fftw_malloc (sizeof (fftw_complex) * FFT_SIZE);
+    s->out_complex_right = fftw_malloc (sizeof (fftw_complex) * FFT_SIZE);
+    
+    // Create stereo FFT plans
+    s->p_r2c_left = fftw_plan_dft_r2c_1d (FFT_SIZE, s->in_left, s->out_complex_left, FFTW_ESTIMATE);
+    s->p_r2c_right = fftw_plan_dft_r2c_1d (FFT_SIZE, s->in_right, s->out_complex_right, FFTW_ESTIMATE);
+    
     spectrogram_set_refresh_interval (s, CONFIG_REFRESH_INTERVAL);
     deadbeef->mutex_unlock (s->mutex);
 }
@@ -926,7 +1032,7 @@ spectrogram_connect (void)
         if (gtkui_plugin->gui.plugin.version_major == 2) {
             //printf ("fb api2\n");
             // 0.6+, use the new widget API
-            gtkui_plugin->w_reg_widget ("Spectrogram", 0, w_spectrogram_create, "spectrogram", NULL);
+            gtkui_plugin->w_reg_widget ("Stereo Spectrogram", 0, w_spectrogram_create, "stereo_spectrogram", NULL);
             return 0;
         }
     }
@@ -977,12 +1083,12 @@ static DB_misc_t plugin = {
     .plugin.version_major   = 0,
     .plugin.version_minor   = 1,
 #if GTK_CHECK_VERSION(3,0,0)
-    .plugin.id              = "spectrogram-gtk3",
+    .plugin.id              = "stereo_spectrogram-gtk3",
 #else
-    .plugin.id              = "spectrogram",
+    .plugin.id              = "stereo_spectrogram",
 #endif
-    .plugin.name            = "Spectrogram",
-    .plugin.descr           = "Spectrogram",
+    .plugin.name            = "Stereo Spectrogram",
+    .plugin.descr           = "Stereo Spectrogram",
     .plugin.copyright       =
         "Copyright (C) 2013 Christian Boxdörfer <christian.boxdoerfer@posteo.de>\n"
         "\n"
@@ -1010,13 +1116,13 @@ static DB_misc_t plugin = {
 
 #if !GTK_CHECK_VERSION(3,0,0)
 DB_plugin_t *
-ddb_vis_spectrogram_GTK2_load (DB_functions_t *ddb) {
+ddb_vis_stereo_spectrogram_GTK2_load (DB_functions_t *ddb) {
     deadbeef = ddb;
     return &plugin.plugin;
 }
 #else
 DB_plugin_t *
-ddb_vis_spectrogram_GTK3_load (DB_functions_t *ddb) {
+ddb_vis_stereo_spectrogram_GTK3_load (DB_functions_t *ddb) {
     deadbeef = ddb;
     return &plugin.plugin;
 }

@@ -16,8 +16,8 @@
 #    along with this program; if not, write to the Free Software
 #    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
-OUT_GTK2?=ddb_vis_spectrogram_GTK2.so
-OUT_GTK3?=ddb_vis_spectrogram_GTK3.so
+OUT_GTK2?=ddb_vis_stereo_spectrogram_GTK2.so
+OUT_GTK3?=ddb_vis_stereo_spectrogram_GTK3.so
 
 GTK2_CFLAGS?=`pkg-config --cflags gtk+-2.0`
 GTK3_CFLAGS?=`pkg-config --cflags gtk+-3.0`

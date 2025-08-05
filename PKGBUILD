@@ -1,14 +1,14 @@
-pkgname=deadbeef-plugin-spectrogram-git
+pkgname=deadbeef-plugin-stereo-spectrogram-git
 pkgver=20140327
 pkgrel=1
-pkgdesc="Spectrogram Plugin for the DeaDBeeF audio player (development version)"
+pkgdesc="Stereo Spectrogram Plugin for the DeaDBeeF audio player (development version)"
 url="https://github.com/cboxdoerfer/ddb_spectrogram"
 arch=('i686' 'x86_64')
 license='GPL2'
 depends=('deadbeef' 'fftw')
 makedepends=('git')
 
-_gitname=ddb_spectrogram
+_gitname=ddb_stereo_spectrogram
 _gitroot=https://github.com/cboxdoerfer/${_gitname}
 
 build() {
@@ -38,6 +38,6 @@ build() {
 }
 
 package() {
-  install -D -v -c $srcdir/$_gitname-build/gtk2/ddb_vis_spectrogram_GTK2.so $pkgdir/usr/lib/deadbeef/ddb_vis_spectrogram_GTK2.so
-  install -D -v -c $srcdir/$_gitname-build/gtk3/ddb_vis_spectrogram_GTK3.so $pkgdir/usr/lib/deadbeef/ddb_vis_spectrogram_GTK3.so
+  install -D -v -c $srcdir/$_gitname-build/gtk2/ddb_vis_stereo_spectrogram_GTK2.so $pkgdir/usr/lib/deadbeef/ddb_vis_stereo_spectrogram_GTK2.so
+  install -D -v -c $srcdir/$_gitname-build/gtk3/ddb_vis_stereo_spectrogram_GTK3.so $pkgdir/usr/lib/deadbeef/ddb_vis_stereo_spectrogram_GTK3.so
 }
